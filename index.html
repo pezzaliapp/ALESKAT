@@ -38,8 +38,8 @@
         </div>
         <div class="splash-tips">
           <span>❤️ 3 vite</span>
-          <span>🦈 Squalo dal Lv.3</span>
-          <span>🐠 Incontra Nemo</span>
+          <span>🦈 Squalo dal Lv.2</span>
+          <span>🐠 Nemo ti aiuta al volo</span>
           <span>🪱 Attento ai lombrichi grossi</span>
           <span>⌨️ WASD / frecce su laptop • SPAZIO = boost</span>
         </div>
@@ -99,7 +99,23 @@
 <script src="app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+    window.addEventListener('load', async () => {
+      try {
+        const reg = await navigator.serviceWorker.register('sw.js');
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              nw.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        });
+      } catch (err) {
+        console.error('SW registration failed', err);
+      }
+    });
   }
 </script>
 </body>

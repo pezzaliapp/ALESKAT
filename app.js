@@ -52,6 +52,13 @@ let levelBanner = 0;
 let encounterBanner = { text: '', timer: 0, color: '#00f5ff' };
 let lastNemoAt = 0;
 let sharkSpawnedAtLevel = 0;
+let lastKiller = null;
+let lastDeathReason = '';
+let deathFocusTimer = 0;
+let deathPulse = 0;
+let pendingAutoReload = false;
+let autoReloadTimer = 0;
+let hasReloadedForUpdate = false;
 
 let joyActive = false, joyX = 0, joyY = 0, joyDX = 0, joyDY = 0;
 
@@ -151,11 +158,15 @@ function loop() {
     drawBg(0);
     tickBubbles(); tickDrift(); tickParticles();
     drawBubbles(); drawParticles();
-  } else if (state === 'playing' || state === 'nemo' || state === 'gameover') {
+  } else if (state === 'playing' || state === 'gameover') {
     if (state === 'playing') update();
     if (worm) updateCamera();
     draw(dr);
-    if (state === 'nemo') drawNemoScene();
+  }
+
+  if (pendingAutoReload && autoReloadTimer > 0) {
+    autoReloadTimer--;
+    if (autoReloadTimer <= 0) window.location.reload();
   }
   ctx.restore();
 }
@@ -187,6 +198,7 @@ function startGame(fresh) {
   foods = []; enemies = []; particles = []; plankton = []; bubbles = [];
   nemoObj = null; camY = 0; targetCamY = 0; depth = 0;
   lastNemoAt = 0; sharkSpawnedAtLevel = 0; encounterBanner = { text: '', timer: 0, color: '#00f5ff' };
+  lastKiller = null; lastDeathReason = ''; deathFocusTimer = 0; deathPulse = 0;
   initBubbles(); initPlankton();
 
   // Il lombrico inizia al centro orizzontale, appena sotto la superficie (mondo)
@@ -226,6 +238,7 @@ function update() {
   tickParticles();
   tickPlankton();
   tickDrift();
+  updateNemo();
   checkCollisions();
   updateHUD();
 
@@ -589,7 +602,8 @@ function checkCollisions() {
         burst(e.wx, e.wy, e.type.col, 14);
       } else {
         burst(hd.wx, hd.wy, `hsl(${wormCol.h},${wormCol.s}%,${wormCol.l}%)`, 25);
-        loseLife('Divorato da ' + e.type.name);
+        setLastKiller({ kind:'creature', label: prettyEnemyName(e.type.name), wx:e.wx, wy:e.wy, color:e.type.col, radius:e.type.r * sc * 1.8, enemy:e });
+        loseLife('Divorato da ' + prettyEnemyName(e.type.name));
       }
     }
   });
@@ -598,6 +612,7 @@ function checkCollisions() {
   if (shark && Math.hypot(hd.wx-shark.wx, hd.wy-shark.wy) < hr + 28*sc) {
     burst(hd.wx, hd.wy, `hsl(${wormCol.h},${wormCol.s}%,${wormCol.l}%)`, 30);
     shakeT = 1;
+    setLastKiller({ kind:'shark', label:'Squalo', wx:shark.wx, wy:shark.wy, color:'#8ea6ff', radius:34 * sc, enemy:shark });
     loseLife('Lo squalo ti ha mangiato!');
   }
 
@@ -612,6 +627,7 @@ function checkCollisions() {
       } else {
         burst(hd.wx, hd.wy, `hsl(${wormCol.h},${wormCol.s}%,${wormCol.l}%)`, 25);
         shakeT = 0.8;
+        setLastKiller({ kind:'eworm', label:'Lombrico gigante', wx:e.wx, wy:e.wy, color:`hsl(${e.col.h},${e.col.s}%,${e.col.l}%)`, radius:e.r * 1.8, enemy:e });
         loseLife('Divorato da un lombrico più grosso!');
       }
     }
@@ -619,14 +635,34 @@ function checkCollisions() {
 }
 
 // ─── PERDITA VITA / GAME OVER ─────────────────────────────────────────────────
+function setLastKiller(killer) {
+  if (!killer) return;
+  lastKiller = { ...killer };
+}
+
+function prettyEnemyName(name) {
+  const map = {
+    anglerfish: 'Pesce lanterna',
+    barracuda: 'Barracuda',
+    pufferfish: 'Pesce palla',
+    moray: 'Murena',
+    mantaray: 'Manta'
+  };
+  return map[name] || name;
+}
+
 function loseLife(reason) {
   if (state !== 'playing') return;
+  lastDeathReason = reason;
+  deathFocusTimer = 140;
+  deathPulse = 1;
+  flashCol = '#ff2d78';
+  flashA = 0.5;
   lives--;
   updateLivesHUD();
   if (lives <= 0) {
     gameOver();
   } else {
-    // Respawn nella posizione attuale con invincibilità
     const cx = W / 2;
     const cy_world = camY + H * 0.4;
     const gap = (CFG.SEG_R*2+5)*sc;
@@ -636,7 +672,7 @@ function loseLife(reason) {
              length:Math.max(CFG.INIT_LEN, Math.floor((worm?.length||CFG.INIT_LEN)*0.7)),
              boosting:false, glow:0, invincible:180 };
     energy = 50;
-    flashCol = '#ff2d78'; flashA = 0.5;
+    encounterBanner = { text: lastDeathReason.toUpperCase(), timer: 90, color: '#ff6b8f' };
   }
 }
 
@@ -650,43 +686,77 @@ function gameOver() {
   document.getElementById('goDepth').textContent  = Math.floor(depth) + 'm';
   document.getElementById('goHS').textContent     = highScore;
   document.getElementById('goLevel').textContent  = 'Liv. ' + level;
+
+  let goReason = document.getElementById('goReason');
+  if (!goReason) {
+    goReason = document.createElement('div');
+    goReason.id = 'goReason';
+    goReason.style.cssText = "font-family:'Rajdhani',sans-serif;font-size:16px;line-height:1.2;text-align:center;color:rgba(255,255,255,.92);max-width:260px;";
+    const goTitle = document.querySelector('.go-title');
+    if (goTitle && goTitle.parentNode) goTitle.parentNode.insertBefore(goReason, goTitle.nextSibling);
+  }
+  const killerLabel = lastKiller?.label ? ` · ${lastKiller.label}` : '';
+  goReason.textContent = lastDeathReason ? `${lastDeathReason}${killerLabel}` : 'Sei stato mangiato';
+
   document.getElementById('gameOver').classList.remove('hidden');
 }
 
 // ─── NEMO ─────────────────────────────────────────────────────────────────────
 function spawnNemo() {
-  if (depth < CFG.NEMO_MIN_DEPTH) return;
+  if (depth < CFG.NEMO_MIN_DEPTH || nemoObj) return;
   const fromLeft = Math.random() < 0.5;
   const wx = fromLeft ? -60 : W + 60;
-  const wy = camY + H * 0.34 + Math.random() * H * 0.18;
+  const wy = camY + H * (0.28 + Math.random() * 0.22);
   const angle = fromLeft ? 0 : Math.PI;
-  nemoObj = { wx, wy, angle, phase:0,
+  nemoObj = {
+    wx, wy, angle, phase:0,
     segs: Array.from({length:8}, ()=>({wx, wy})),
-    speed: 1.65*sc, timer: 0 };
+    speed: 1.9*sc,
+    timer: 0,
+    gifted: false,
+    fromLeft,
+    targetOffsetY: (-0.08 + Math.random() * 0.16) * H
+  };
   lastNemoAt = tick * (1000 / 60);
-  encounterBanner = { text: '🐠 NEMO TI HA TROVATO', timer: 130, color: '#ff9a4d' };
-  state = 'nemo';
-  showEl('hud', false); showEl('joystickZone', false);
+  encounterBanner = { text: '🐠 NEMO PASSA DI QUI', timer: 110, color: '#ff9a4d' };
 }
 
 function updateNemo() {
   if (!nemoObj) return;
-  nemoObj.phase += 0.04; nemoObj.timer++;
-  const tx = W * 0.5, ty = camY + H * 0.42;
-  const dx = tx - nemoObj.wx, dy = ty - nemoObj.wy;
-  const dist = Math.hypot(dx, dy) || 1;
-  if (dist > 12) {
-    nemoObj.angle = Math.atan2(dy, dx);
-    nemoObj.wx += Math.cos(nemoObj.angle) * nemoObj.speed;
-    nemoObj.wy += Math.sin(nemoObj.angle) * nemoObj.speed * 0.5;
+  nemoObj.phase += 0.07;
+  nemoObj.timer++;
+
+  const hd = worm?.segs?.[0];
+  const cruiseX = nemoObj.fromLeft ? W + 120 : -120;
+  let tx = cruiseX;
+  let ty = nemoObj.wy + Math.sin(nemoObj.phase) * 10 * sc;
+
+  if (hd && nemoObj.timer < 220) {
+    tx = hd.wx + (nemoObj.fromLeft ? 110 : -110) * sc;
+    ty = hd.wy + nemoObj.targetOffsetY + Math.sin(nemoObj.phase * 1.2) * 18 * sc;
   }
+
+  const dx = tx - nemoObj.wx;
+  const dy = ty - nemoObj.wy;
+  const dist = Math.hypot(dx, dy) || 1;
+  nemoObj.angle = Math.atan2(dy, dx);
+  const spd = nemoObj.speed * (nemoObj.timer > 220 ? 1.15 : 1);
+  nemoObj.wx += Math.cos(nemoObj.angle) * Math.min(dist, spd);
+  nemoObj.wy += Math.sin(nemoObj.angle) * Math.min(dist, spd * 0.75);
+  nemoObj.wx = ((nemoObj.wx % W) + W) % W;
+
   nemoObj.segs.unshift({ wx: nemoObj.wx, wy: nemoObj.wy });
   while (nemoObj.segs.length > 8) nemoObj.segs.pop();
-  if (nemoObj.timer >= 360) {
-    nemoObj = null; state = 'playing';
-    showEl('hud', true); showEl('joystickZone', true);
+
+  if (hd && !nemoObj.gifted && Math.hypot(hd.wx - nemoObj.wx, hd.wy - nemoObj.wy) < 95 * sc) {
+    nemoObj.gifted = true;
     energy = Math.min(CFG.ENERGY_MAX, energy + 30);
+    score += 20 * Math.max(1, level * 0.5);
+    burst(nemoObj.wx, nemoObj.wy, '#ff9a4d', 14);
+    encounterBanner = { text: '🐠 NEMO TI AIUTA  +30 ENERGIA', timer: 120, color: '#ffd166' };
   }
+
+  if (nemoObj.timer >= 320) nemoObj = null;
 }
 
 // ─── BOLLE ────────────────────────────────────────────────────────────────────
@@ -747,6 +817,7 @@ function draw(dr) {
   drawFood();
   drawCreatures(dr);
   drawEnemyWorms();
+  if (nemoObj) drawNemoScene();
   if (worm && worm.segs && worm.segs.length) drawWorm();
   drawParticles();
 
@@ -759,6 +830,7 @@ function draw(dr) {
   // Indicatore di profondità visivo laterale (mini barra)
   drawDepthBar(dr);
   drawEncounterBanner();
+  drawKillerFocus();
 
   // Flash danno
   if (flashA > 0) {
@@ -1090,10 +1162,8 @@ function drawWorm() {
 
 // ─── NEMO ─────────────────────────────────────────────────────────────────────
 function drawNemoScene() {
-  updateNemo();
   if (!nemoObj) return;
   ctx.save();
-  ctx.fillStyle='rgba(0,30,60,0.55)'; ctx.fillRect(0,0,W,H);
   const nx=nemoObj.wx, nY=sy(nemoObj.wy), nr=18*sc;
   const g=(Math.sin(nemoObj.phase)+1)*0.5;
   // Coda
@@ -1114,27 +1184,70 @@ function drawNemoScene() {
     ctx.beginPath(); ctx.arc(sx2,sy2,nr*(0.3+i*0.1),nemoObj.angle-Math.PI/2,nemoObj.angle+Math.PI/2);
     ctx.stroke();
   }
+  // Scia gentile
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,166,77,0.35)';
+  ctx.lineWidth = 2 * sc;
+  ctx.beginPath();
+  ctx.moveTo(nx - Math.cos(nemoObj.angle) * nr * 1.4, nY - Math.sin(nemoObj.angle) * nr * 1.4);
+  ctx.lineTo(nx - Math.cos(nemoObj.angle) * nr * 3.4, nY - Math.sin(nemoObj.angle) * nr * 3.4);
+  ctx.stroke();
   // Occhio
   const ex2=nx+Math.cos(nemoObj.angle)*nr*0.6, ey2=nY+Math.sin(nemoObj.angle)*nr*0.3;
-  ctx.shadowBlur=0; ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ex2,ey2,4*sc,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ex2,ey2,4*sc,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(ex2+Math.cos(nemoObj.angle)*1.5*sc,ey2+Math.sin(nemoObj.angle)*1.5*sc,2.2*sc,0,Math.PI*2); ctx.fill();
-  // Messaggio
-  if(nemoObj.timer>80){
-    ctx.globalAlpha=Math.min(1,(nemoObj.timer-80)/40);
-    ctx.font=`bold ${22*sc}px 'Orbitron',monospace`; ctx.textAlign='center';
-    ctx.fillStyle='#ff6b35'; ctx.shadowColor='#ff6b35'; ctx.shadowBlur=20;
-    ctx.fillText('NEMO!', W/2, H*0.26);
-    ctx.font=`${15*sc}px 'Rajdhani',sans-serif`;
-    ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.shadowBlur=8;
-    ctx.fillText('"Ehi! Ti do un po\' di energia!"', W/2, H*0.26+28*sc);
-    if(nemoObj.timer>220){
-      ctx.fillStyle='rgba(57,255,20,0.9)'; ctx.shadowColor='#39ff14'; ctx.shadowBlur=15;
-      ctx.font=`bold ${18*sc}px 'Orbitron',monospace`;
-      ctx.fillText('+30 ENERGIA', W/2, H*0.26+56*sc);
-    }
-    ctx.globalAlpha=1;
+
+  if (nemoObj.gifted && nemoObj.timer < 150) {
+    ctx.globalAlpha = Math.max(0, 1 - (nemoObj.timer - 30) / 120);
+    ctx.textAlign = 'center';
+    ctx.font = `bold ${18*sc}px 'Orbitron',monospace`;
+    ctx.fillStyle = '#ffd166';
+    ctx.shadowColor = '#ffd166';
+    ctx.shadowBlur = 18;
+    ctx.fillText('+30 ENERGIA', nx, nY - 26*sc);
   }
   ctx.restore();
+}
+
+function drawKillerFocus() {
+  if (!lastKiller || deathFocusTimer <= 0) return;
+  const x = lastKiller.wx;
+  const y = sy(lastKiller.wy);
+  const pulse = 1 + Math.sin(tick * 0.35) * 0.12;
+  const r = (lastKiller.radius || 28 * sc) * pulse;
+  const alpha = Math.min(0.72, deathFocusTimer / 140);
+  ctx.save();
+  ctx.fillStyle = `rgba(0,0,0,${alpha * 0.42})`;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = lastKiller.color || '#ff5a7a';
+  ctx.shadowColor = lastKiller.color || '#ff5a7a';
+  ctx.shadowBlur = 22;
+  ctx.lineWidth = 4 * sc;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - r - 18*sc, y);
+  ctx.lineTo(x - r + 2*sc, y);
+  ctx.moveTo(x + r - 2*sc, y);
+  ctx.lineTo(x + r + 18*sc, y);
+  ctx.moveTo(x, y - r - 18*sc);
+  ctx.lineTo(x, y - r + 2*sc);
+  ctx.moveTo(x, y + r - 2*sc);
+  ctx.lineTo(x, y + r + 18*sc);
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.font = `bold ${Math.max(16, 20 * sc)}px 'Orbitron', monospace`;
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#000000';
+  ctx.shadowBlur = 12;
+  ctx.fillText(lastKiller.label || 'PREDATORE', W / 2, H * 0.18);
+  if (lastDeathReason) {
+    ctx.font = `${Math.max(13, 15 * sc)}px 'Rajdhani', sans-serif`;
+    ctx.fillText(lastDeathReason, W / 2, H * 0.22);
+  }
+  ctx.restore();
+  deathFocusTimer = Math.max(0, deathFocusTimer - 1);
 }
 
 // ─── PARTICELLE ───────────────────────────────────────────────────────────────
@@ -1196,10 +1309,24 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data && e.data.type === 'aleskat:updated') {
       showUpdateBanner();
+      queueAutoReload();
     }
   });
 
-  // Controlla aggiornamenti ogni volta che la tab torna in foreground
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hasReloadedForUpdate) return;
+    hasReloadedForUpdate = true;
+    window.location.reload();
+  });
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (!reg) return;
+      reg.update();
+      setInterval(() => reg.update(), 25000);
+    });
+  });
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       navigator.serviceWorker.getRegistration().then(reg => {
@@ -1207,6 +1334,16 @@ if ('serviceWorker' in navigator) {
       });
     }
   });
+}
+
+function queueAutoReload() {
+  pendingAutoReload = true;
+  autoReloadTimer = state === 'playing' ? 240 : 30;
+  encounterBanner = {
+    text: state === 'playing' ? '🔄 AGGIORNAMENTO IN ARRIVO…' : '🔄 AGGIORNAMENTO AUTOMATICO',
+    timer: Math.max(encounterBanner.timer, state === 'playing' ? 150 : 60),
+    color: '#7cf5b3'
+  };
 }
 
 function showUpdateBanner() {
