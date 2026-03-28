@@ -23,8 +23,10 @@ const CFG = {
   MAX_DEPTH_M : 3000,    // profondità massima (metro) — poi si "avvolge"
   LIVES       : 3,
   LEVEL_SCORE : 300,
-  NEMO_CHANCE : 0.003,
-  SHARK_LEVEL : 3,
+  NEMO_CHANCE : 0.012,
+  NEMO_MIN_DEPTH : 30,
+  NEMO_FORCE_MS  : 45000,
+  SHARK_LEVEL : 2,
   CAM_LERP    : 0.08,    // fluidità della camera (0=rigida, 1=istantanea)
   WORLD_VIEW  : 1.5,     // quante volte H copre il "mondo visibile" per spawn
 };
@@ -47,6 +49,9 @@ let nemoObj = null;
 let shakeT = 0;
 let flashCol = '', flashA = 0;
 let levelBanner = 0;
+let encounterBanner = { text: '', timer: 0, color: '#00f5ff' };
+let lastNemoAt = 0;
+let sharkSpawnedAtLevel = 0;
 
 let joyActive = false, joyX = 0, joyY = 0, joyDX = 0, joyDY = 0;
 
@@ -181,6 +186,7 @@ function startGame(fresh) {
   wormCol = WORM_PAL[Math.floor(Math.random() * WORM_PAL.length)];
   foods = []; enemies = []; particles = []; plankton = []; bubbles = [];
   nemoObj = null; camY = 0; targetCamY = 0; depth = 0;
+  lastNemoAt = 0; sharkSpawnedAtLevel = 0; encounterBanner = { text: '', timer: 0, color: '#00f5ff' };
   initBubbles(); initPlankton();
 
   // Il lombrico inizia al centro orizzontale, appena sotto la superficie (mondo)
@@ -223,6 +229,10 @@ function update() {
   checkCollisions();
   updateHUD();
 
+  if (level >= CFG.SHARK_LEVEL && !enemies.find(e => e.kind === 'shark') && sharkSpawnedAtLevel < level) {
+    spawnSharkIfNeeded();
+  }
+
   score     += 0.05 * level;
   levelScore += 0.05 * level;
   energy     = Math.max(0, energy - CFG.ENERGY_DRAIN * (1 + level * 0.04));
@@ -234,7 +244,10 @@ function update() {
     spawnSharkIfNeeded();
   }
 
-  if (!nemoObj && Math.random() < CFG.NEMO_CHANCE / 60) spawnNemo();
+  const nowMs = tick * (1000 / 60);
+  const nemoReady = depth >= CFG.NEMO_MIN_DEPTH && !nemoObj;
+  const nemoForced = nemoReady && (lastNemoAt === 0 || nowMs - lastNemoAt >= CFG.NEMO_FORCE_MS);
+  if (nemoForced || (nemoReady && Math.random() < CFG.NEMO_CHANCE / 60)) spawnNemo();
   if (worm) worm.invincible = Math.max(0, worm.invincible - 1);
 }
 
@@ -441,13 +454,16 @@ function tickCreatures() {
     shark.phase += 0.02;
     if (worm) {
       const hd = worm.segs[0];
-      if (Math.hypot(hd.wx - shark.wx, hd.wy - shark.wy) < 350 * sc)
-        shark.angle = Math.atan2(hd.wy - shark.wy, hd.wx - shark.wx);
+      const distToPlayer = Math.hypot(hd.wx - shark.wx, hd.wy - shark.wy);
+      if (distToPlayer < 600 * sc) shark.angle = Math.atan2(hd.wy - shark.wy, hd.wx - shark.wx);
       else shark.angle += Math.sin(shark.phase) * 0.02;
     }
     shark.wx += Math.cos(shark.angle) * 2.8 * sc * (1 + level * 0.06);
     shark.wy += Math.sin(shark.angle) * 2.8 * sc * (1 + level * 0.06);
     shark.wx = ((shark.wx % W) + W) % W;
+    const minWy = Math.max(0, camY - H * 0.1);
+    const maxWy = camY + H * 1.1;
+    shark.wy = Math.max(minWy, Math.min(maxWy, shark.wy));
     shark.segs.unshift({ wx: shark.wx, wy: shark.wy });
     while (shark.segs.length > shark.segLen) shark.segs.pop();
   }
@@ -472,11 +488,20 @@ function spawnCreature() {
 }
 
 function spawnSharkIfNeeded() {
-  if (level >= CFG.SHARK_LEVEL && !enemies.find(e => e.kind === 'shark')) {
-    const wx = W + 50, wy = (worm ? worm.segs[0].wy : camY + H/2);
-    enemies.push({ kind:'shark', wx, wy, angle:Math.PI, segLen:20,
-      segs: Array.from({length:20}, () => ({wx, wy})), phase:0, dead:false });
-  }
+  if (level < CFG.SHARK_LEVEL || enemies.find(e => e.kind === 'shark')) return;
+
+  const refX = worm ? worm.segs[0].wx : W * 0.5;
+  const refY = worm ? worm.segs[0].wy : camY + H * 0.5;
+  const fromLeft = Math.random() < 0.5;
+  const wx = fromLeft ? -70 : W + 70;
+  const wy = refY + (Math.random() - 0.5) * H * 0.25;
+  const angle = Math.atan2(refY - wy, refX - wx);
+
+  enemies.push({ kind:'shark', wx, wy, angle, segLen:20,
+    segs: Array.from({length:20}, () => ({wx, wy})), phase:0, dead:false });
+
+  sharkSpawnedAtLevel = level;
+  encounterBanner = { text: '⚠ SQUALO IN ARRIVO', timer: 150, color: '#8ea6ff' };
 }
 
 // ─── LOMBRICHI NEMICI ─────────────────────────────────────────────────────────
@@ -630,11 +655,16 @@ function gameOver() {
 
 // ─── NEMO ─────────────────────────────────────────────────────────────────────
 function spawnNemo() {
-  if (depth < 50) return; // non appare in superficie
-  const wx = W + 60, wy = camY + H * 0.3 + Math.random() * H * 0.3;
-  nemoObj = { wx, wy, angle:Math.PI, phase:0,
+  if (depth < CFG.NEMO_MIN_DEPTH) return;
+  const fromLeft = Math.random() < 0.5;
+  const wx = fromLeft ? -60 : W + 60;
+  const wy = camY + H * 0.34 + Math.random() * H * 0.18;
+  const angle = fromLeft ? 0 : Math.PI;
+  nemoObj = { wx, wy, angle, phase:0,
     segs: Array.from({length:8}, ()=>({wx, wy})),
-    speed: 1.2*sc, timer: 0 };
+    speed: 1.65*sc, timer: 0 };
+  lastNemoAt = tick * (1000 / 60);
+  encounterBanner = { text: '🐠 NEMO TI HA TROVATO', timer: 130, color: '#ff9a4d' };
   state = 'nemo';
   showEl('hud', false); showEl('joystickZone', false);
 }
@@ -728,6 +758,7 @@ function draw(dr) {
 
   // Indicatore di profondità visivo laterale (mini barra)
   drawDepthBar(dr);
+  drawEncounterBanner();
 
   // Flash danno
   if (flashA > 0) {
@@ -839,6 +870,21 @@ function drawDepthBar(dr) {
   ctx.font = `bold ${7*sc}px 'Orbitron',monospace`;
   ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,245,255,0.6)';
   ctx.fillText('▼', bx+bw/2, by-4*sc);
+}
+
+function drawEncounterBanner() {
+  if (!encounterBanner.timer || !encounterBanner.text) return;
+  const alpha = Math.min(1, encounterBanner.timer / 20);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'center';
+  ctx.font = `bold ${Math.max(16, 20 * sc)}px 'Orbitron', monospace`;
+  ctx.fillStyle = encounterBanner.color;
+  ctx.shadowColor = encounterBanner.color;
+  ctx.shadowBlur = 18;
+  ctx.fillText(encounterBanner.text, W / 2, H * 0.12);
+  ctx.restore();
+  encounterBanner.timer = Math.max(0, encounterBanner.timer - 1);
 }
 
 // ─── BOLLE ────────────────────────────────────────────────────────────────────
