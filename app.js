@@ -90,17 +90,30 @@ function init() {
   requestAnimationFrame(loop);
 }
 
+// ─── RESIZE — funziona su mobile, tablet, laptop, widescreen ──────────────────
+// Mantiene sempre l'aspect 9:16, centrato sullo schermo, senza barre nere fisse
 function resize() {
-  const vw = window.innerWidth, vh = window.innerHeight, asp = 9/16;
-  if (vw/vh < asp) { W=vw; H=Math.round(vw/asp); }
-  else             { H=vh; W=Math.round(vh*asp); }
-  canvas.width  = Math.round(W*dpr);
-  canvas.height = Math.round(H*dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  const wr = document.getElementById('gameWrapper');
-  wr.style.width  = W+'px';
-  wr.style.height = H+'px';
-  sc = W/CFG.BASE_W;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const asp = 9 / 16;
+
+  if (vw / vh < asp) {
+    // Schermo più stretto del 9:16 → larghezza piena
+    W = vw;
+    H = Math.round(vw / asp);
+  } else {
+    // Schermo più largo o uguale → altezza piena
+    H = vh;
+    W = Math.round(vh * asp);
+  }
+
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  sc = W / CFG.BASE_W;
 }
 
 // ─── LOOP ─────────────────────────────────────────────────────────────────────
@@ -123,7 +136,7 @@ function loop() {
     drawBubbles(); drawParticles();
   } else if (state === 'playing' || state === 'nemo' || state === 'gameover') {
     if (state === 'playing') update();
-    if (worm) updateCamera();
+    updateCamera();
     draw(dr);
     if (state === 'nemo') drawNemoScene();
   }
@@ -222,7 +235,7 @@ function setupJoystick() {
 
   function sj(cx, cy) {
     joyActive = true; joyX = cx; joyY = cy; joyDX = 0; joyDY = 0;
-    const r = document.getElementById('gameWrapper').getBoundingClientRect();
+    const r = canvas.getBoundingClientRect();
     base.style.left = (cx - r.left) + 'px';
     base.style.top  = (cy - r.top)  + 'px';
     base.style.bottom = ''; base.style.transform = 'translate(-50%,-50%)';
@@ -658,7 +671,7 @@ function draw(dr) {
   drawFood();
   drawCreatures(dr);
   drawEnemyWorms();
-  if (worm && worm.segs && worm.segs.length) drawWorm();
+  if (worm) drawWorm();
   drawParticles();
 
   // Velo abissale — più scuro in profondità
@@ -770,13 +783,16 @@ function drawBg(dr) {
 // ─── BARRA PROFONDITÀ laterale ────────────────────────────────────────────────
 function drawDepthBar(dr) {
   const bw = 6*sc, bh = H*0.35, bx = W-bw-8*sc, by = H*0.32;
+  // Sfondo
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,3); ctx.fill();
+  // Fill
   const fillH = bh * dr;
   const barGrad = ctx.createLinearGradient(0,by,0,by+bh);
   barGrad.addColorStop(0,'#00f5ff'); barGrad.addColorStop(0.5,'#9b5de5'); barGrad.addColorStop(1,'#220033');
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  rRect(bx,by,bw,bh,3); ctx.fill();
   ctx.fillStyle = barGrad;
-  rRect(bx,by+bh-fillH,bw,fillH,3); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(bx,by+bh-fillH,bw,fillH,3); ctx.fill();
+  // Label
   ctx.font = `bold ${7*sc}px 'Orbitron',monospace`;
   ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,245,255,0.6)';
   ctx.fillText('▼', bx+bw/2, by-4*sc);
@@ -1070,79 +1086,9 @@ function setupButtons(){
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
-function rRect(x,y,w,h,r){
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);
-  ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
-  ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
-  ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
-  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
-  ctx.closePath();
-}
 function showEl(id,v){document.getElementById(id).classList.toggle('hidden',!v);}
 function hexA(hex,a){
   return`rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${a})`;
 }
 
-window.addEventListener('DOMContentLoaded', init);
-
-// ─── AUTO-UPDATE: ascolta messaggi dal Service Worker ─────────────────────────
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', e => {
-    if (e.data && e.data.type === 'aleskat:updated') {
-      showUpdateBanner();
-    }
-  });
-
-  // Controlla aggiornamenti ogni volta che la tab torna in foreground
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      navigator.serviceWorker.getRegistration().then(reg => {
-        if (reg) reg.update();
-      });
-    }
-  });
-}
-
-function showUpdateBanner() {
-  // Evita duplicati
-  if (document.getElementById('updateBanner')) return;
-
-  const banner = document.createElement('div');
-  banner.id = 'updateBanner';
-  banner.style.cssText = `
-    position: absolute;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 999;
-    background: linear-gradient(135deg, #00f5ff, #39ff14);
-    color: #000d1a;
-    font-family: 'Orbitron', monospace;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
-    padding: 12px 22px;
-    border-radius: 6px;
-    box-shadow: 0 0 30px rgba(0,245,255,0.5);
-    cursor: pointer;
-    white-space: nowrap;
-    animation: bannerIn 0.4s ease-out;
-  `;
-  banner.textContent = '🔄 NUOVA VERSIONE — TOCCA PER AGGIORNARE';
-  banner.addEventListener('click', () => window.location.reload());
-
-  // Aggiunge stile animazione inline (non dipende dal CSS esterno)
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes bannerIn {
-      from { opacity:0; transform:translateX(-50%) translateY(20px); }
-      to   { opacity:1; transform:translateX(-50%) translateY(0); }
-    }
-  `;
-  document.head.appendChild(style);
-
-  // Attacca al wrapper se esiste, altrimenti al body
-  const target = document.getElementById('gameWrapper') || document.body;
-  target.appendChild(banner);
-}
+window.addEventListener('DOMContentLoaded',init);
