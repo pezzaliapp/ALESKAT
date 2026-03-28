@@ -27,35 +27,31 @@
 ## 📱 PWA – Installazione
 
 ### GitHub Pages
-1. Fork/clona questo repo su GitHub
-2. Vai su *Settings → Pages → Source: GitHub Actions*
-3. Il workflow si occupa del deploy automatico
-4. Apri l'URL dal browser mobile e usa **"Aggiungi a schermata Home"**
+1. Assicurati che in *Settings → Pages → Source* sia impostato su **GitHub Actions**
+2. Il workflow `deploy.yml` si occupa del deploy automatico ad ogni push
+3. Apri l'URL dal browser mobile e usa **"Aggiungi a schermata Home"**
 
 ### Locale
 ```bash
-git clone https://github.com/TUO_USERNAME/aleskat.git
-cd aleskat
-# Apri index.html con un server locale (es. Live Server in VSCode)
+git clone https://github.com/pezzaliapp/ALESKAT.git
+cd ALESKAT
 python3 -m http.server 8080
+# apri http://localhost:8080
 ```
 
 ## 🛠 Struttura
 
 ```
-aleskat/
-├── index.html          # Shell HTML
-├── manifest.json       # PWA manifest
-├── sw.js               # Service Worker (offline)
-├── src/
-│   ├── app.js          # Engine di gioco (Canvas 2D)
-│   └── style.css       # UI & HUD
-├── icons/
-│   ├── icon-192.png
-│   └── icon-512.png
-└── .github/
-    └── workflows/
-        └── deploy.yml  # GitHub Actions → Pages
+ALESKAT/
+├── index.html        # Shell HTML
+├── app.js            # Engine di gioco (Canvas 2D)
+├── style.css         # UI & HUD
+├── sw.js             # Service Worker (offline)
+├── manifest.json     # PWA manifest
+├── icon-192.png      # Icona PWA 192×192
+├── icon-512.png      # Icona PWA 512×512
+├── deploy.yml        # GitHub Actions → Pages
+└── README.md
 ```
 
 ## 🎨 Tech Stack
