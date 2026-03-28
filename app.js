@@ -31,9 +31,10 @@ const CFG = {
 
 // ─── STATO ────────────────────────────────────────────────────────────────────
 let canvas, ctx, dpr;
-let W = 414, H = 736, sc = 1;       // dimensioni CSS canvas; sc = W/BASE_W
+let W = 414, H = 736, sc = 1;       // dimensioni CSS canvas / viewport
 let camY = 0;                        // Y mondo corrispondente al bordo superiore dello schermo
 let targetCamY = 0;
+let viewportMode = 'desktop';
 
 let state = 'splash';
 let tick = 0, score = 0, depth = 0, energy = CFG.ENERGY_MAX;
@@ -82,7 +83,12 @@ function init() {
   ctx = canvas.getContext('2d');
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   resize();
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('orientationchange', resize, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', resize, { passive: true });
+    window.visualViewport.addEventListener('scroll', resize, { passive: true });
+  }
   setupJoystick();
   setupButtons();
   document.getElementById('splashHS').textContent = highScore;
@@ -90,17 +96,36 @@ function init() {
   requestAnimationFrame(loop);
 }
 
+function getViewportSize() {
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth;
+  const vh = vv ? vv.height : window.innerHeight;
+  return {
+    vw: Math.max(1, Math.round(vw)),
+    vh: Math.max(1, Math.round(vh))
+  };
+}
+
 function resize() {
-  const vw = window.innerWidth, vh = window.innerHeight, asp = 9/16;
-  if (vw/vh < asp) { W=vw; H=Math.round(vw/asp); }
-  else             { H=vh; W=Math.round(vh*asp); }
-  canvas.width  = Math.round(W*dpr);
-  canvas.height = Math.round(H*dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  const { vw, vh } = getViewportSize();
+  W = vw;
+  H = vh;
+  viewportMode = vw >= vh ? 'landscape' : 'portrait';
+
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
   const wr = document.getElementById('gameWrapper');
-  wr.style.width  = W+'px';
-  wr.style.height = H+'px';
-  sc = W/CFG.BASE_W;
+  wr.style.width  = W + 'px';
+  wr.style.height = H + 'px';
+  wr.dataset.viewport = viewportMode;
+
+  sc = Math.max(0.72, Math.min(W / CFG.BASE_W, H / 736));
 }
 
 // ─── LOOP ─────────────────────────────────────────────────────────────────────
@@ -237,6 +262,10 @@ function setupJoystick() {
   function ej() {
     joyActive = false; joyDX = 0; joyDY = 0;
     knob.style.transform = 'translate(0,0)';
+    base.style.left = '50%';
+    base.style.top = '';
+    base.style.bottom = 'max(24px, env(safe-area-inset-bottom))';
+    base.style.transform = 'translateX(-50%)';
   }
 
   // Touch — zone copre il 45% basso (mobile)

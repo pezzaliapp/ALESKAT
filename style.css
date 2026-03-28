@@ -16,13 +16,24 @@
 }
 
 html, body {
-  width:100%; height:100%;
+  width:100%;
+  min-height:100%;
+  margin:0;
   overflow:hidden;
   background: var(--abyss);
   font-family: var(--font-body);
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+}
+
+html {
+  height:100%;
+}
+
+body {
+  height:100vh;
+  height:100dvh;
 }
 
 /* ── LAYOUT PRINCIPALE ─────────────────────────────────────────────
@@ -34,15 +45,22 @@ html, body {
 #app {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   justify-content: center;
   align-items: center;
   background: var(--abyss);
+  overflow: hidden;
 }
 
 #gameWrapper {
   position: relative;
   flex-shrink: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   cursor: crosshair;
 }
@@ -250,6 +268,30 @@ html, body {
   border:2px solid rgba(0,245,255,.5);
   box-shadow:0 0 18px rgba(0,245,255,.4);
   transition:transform .05s; pointer-events:none;
+}
+
+
+@media (pointer: coarse) {
+  #gameWrapper {
+    cursor: default;
+  }
+
+  #joystickBase {
+    width: min(110px, 24vw);
+    height: min(110px, 24vw);
+    bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  #joystickKnob {
+    width: min(46px, 10vw);
+    height: min(46px, 10vw);
+  }
+}
+
+@media (pointer: fine) {
+  #joystickBase {
+    opacity: .32;
+  }
 }
 
 .hidden { display:none !important; }

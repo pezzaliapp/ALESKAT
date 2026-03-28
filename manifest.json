@@ -4,7 +4,7 @@
   "description": "Sopravvivi negli abissi: nuota, nutriti, cresci. Non farti divorare.",
   "start_url": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#000d1a",
   "theme_color": "#020b18",
   "icons": [
