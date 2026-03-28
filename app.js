@@ -136,7 +136,7 @@ function loop() {
     drawBubbles(); drawParticles();
   } else if (state === 'playing' || state === 'nemo' || state === 'gameover') {
     if (state === 'playing') update();
-    updateCamera();
+    if (worm) updateCamera();
     draw(dr);
     if (state === 'nemo') drawNemoScene();
   }
@@ -671,7 +671,7 @@ function draw(dr) {
   drawFood();
   drawCreatures(dr);
   drawEnemyWorms();
-  if (worm) drawWorm();
+  if (worm && worm.segs && worm.segs.length) drawWorm();
   drawParticles();
 
   // Velo abissale — più scuro in profondità
@@ -783,16 +783,13 @@ function drawBg(dr) {
 // ─── BARRA PROFONDITÀ laterale ────────────────────────────────────────────────
 function drawDepthBar(dr) {
   const bw = 6*sc, bh = H*0.35, bx = W-bw-8*sc, by = H*0.32;
-  // Sfondo
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,3); ctx.fill();
-  // Fill
   const fillH = bh * dr;
   const barGrad = ctx.createLinearGradient(0,by,0,by+bh);
   barGrad.addColorStop(0,'#00f5ff'); barGrad.addColorStop(0.5,'#9b5de5'); barGrad.addColorStop(1,'#220033');
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  rRect(bx,by,bw,bh,3); ctx.fill();
   ctx.fillStyle = barGrad;
-  ctx.beginPath(); ctx.roundRect(bx,by+bh-fillH,bw,fillH,3); ctx.fill();
-  // Label
+  rRect(bx,by+bh-fillH,bw,fillH,3); ctx.fill();
   ctx.font = `bold ${7*sc}px 'Orbitron',monospace`;
   ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,245,255,0.6)';
   ctx.fillText('▼', bx+bw/2, by-4*sc);
@@ -1086,6 +1083,15 @@ function setupButtons(){
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
+function rRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
 function showEl(id,v){document.getElementById(id).classList.toggle('hidden',!v);}
 function hexA(hex,a){
   return`rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${a})`;
