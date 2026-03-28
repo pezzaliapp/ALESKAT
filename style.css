@@ -41,10 +41,10 @@ html, body {
 }
 
 #gameWrapper {
-  position: relative;   /* contesto di posizionamento per tutti gli overlay */
+  position: relative;
   flex-shrink: 0;
-  /* width e height settati via JS uguale al canvas */
   overflow: hidden;
+  cursor: crosshair;
 }
 
 #gameCanvas {
@@ -230,10 +230,10 @@ html, body {
 /* ── JOYSTICK ──────────────────────────────────────────────────────*/
 #joystickZone {
   position: absolute;
-  bottom:0; left:0; right:0;   /* dentro il wrapper */
-  height: 45%;
+  inset: 0;                /* copre tutto il wrapper — mouse funziona ovunque */
   z-index: 60; touch-action: none;
 }
+/* Su touch, visivamente il base appare comunque in basso */
 #joystickBase {
   position: absolute;
   bottom: clamp(30px,6vh,70px); left: 50%;
